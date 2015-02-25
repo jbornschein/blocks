@@ -160,6 +160,8 @@ class Orthogonal(NdarrayInitialization):
 
     """
     def generate(self, rng, shape):
+        if len(shape) == 1:
+            return rng.randn(*shape).astype(theano.config.floatX)
         if len(shape) != 2:
             raise ValueError
 
