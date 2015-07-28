@@ -88,6 +88,88 @@ class Aggregator(object):
         self.accumulation_updates = accumulation_updates
 
 
+class StandardDeviation(AggregationScheme):
+    """Aggregation scheme which computes the Variance
+    """
+    def __init__(self, variable, denominator):
+        self.variable = tensor.as_tensor(variable)
+        self.denominator = tensor.as_tensor(denominator)
+
+    def get_aggregator(self):
+        initialized = shared_like(0.)                   # initialize to correct shape?
+        variable_acc = shared_like(self.variable)       # aggregate var
+        variable_sq_acc = shared_like(self.variable**2) # aggregate var**2
+        denominator_acc = shared_like(self.denominator) # aggregate N
+
+        variable_zeros = tensor.as_tensor(self.variable).zeros_like()
+        denominator_zeros = tensor.as_tensor(self.denominator).zeros_like()
+
+        variable_update = self.variable + ifelse(initialized,
+                                                    variable_acc,
+                                                    variable_zeros)
+        variable_sq_update = self.variable**2 + ifelse(initialized,
+                                                    variable_sq_acc,
+                                                    variable_zeros)
+        denominator_update = self.denominator + ifelse(initialized,
+                                                    denominator_acc,
+                                                    denominator_zeros)
+
+        initialization_updates = [(initialized, 0.)]
+        #initialization_updates = [(variable_acc, variable_zeros),
+        #                          (variable_sq_acc, variable_zeros),
+        #                          (denominator_acc, denominator_zeros),
+        #                          (initialized, 0.)]
+
+        #accumulation_updates = []
+        accumulation_updates = [(variable_acc, variable_update),
+                                (variable_sq_acc, variable_sq_update),
+                                (denominator_acc, denominator_update),
+                                (initialized, 1.)]
+
+        readout = tensor.mean(tensor.sqrt(
+                    (denominator_acc * variable_sq_acc - variable_acc ** 2)
+                        / denominator_acc / (denominator_acc-1)
+                   ))
+
+        aggregator = Aggregator(aggregation_scheme=self,
+                                initialization_updates=initialization_updates,
+                                accumulation_updates=accumulation_updates,
+                                readout_variable=readout)
+
+        return aggregator
+
+
+def std(variable, axis=None):
+    """ Compute the aggregated standard deviation """
+    agg = 0*variable
+    agg.tag.aggregation_scheme = StandardDeviation(variable, 1.0)
+    agg.name = "{}_std".format(variable.name)
+    return agg
+
+
+class NUpdates(AggregationScheme):
+    def __init__(self, variable):
+        self.variable = variable
+
+    def get_aggregator(self):
+        updates_acc = shared_like(0)
+        initialization_updates = [(updates_acc, 0)]
+        accumulation_updates = [(updates_acc, updates_acc + 1)]
+
+        aggregator = Aggregator(aggregation_scheme=self,
+                                initialization_updates=initialization_updates,
+                                accumulation_updates=accumulation_updates,
+                                readout_variable=updates_acc)
+        return aggregator
+
+
+def nupdates(variable):
+    agg = 0*variable.mean()
+    agg.tag.aggregation_scheme = NUpdates(variable)
+    agg.name = "{}_nupdates".format(variable.name)
+    return agg
+
+
 class Mean(AggregationScheme):
     """Aggregation scheme which computes the mean.
 
